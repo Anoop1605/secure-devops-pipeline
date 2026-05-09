@@ -7,11 +7,12 @@ set -e
 
 PUSHGATEWAY_URL=""
 JOB_NAME="secure_devops_pipeline"
+AUTH=""
 BUILD_NUMBER="${GITHUB_RUN_NUMBER:-0}"
 REPO="${GITHUB_REPOSITORY:-unknown}"
 
 usage() {
-  echo "Usage: $0 --pushgateway <url> [--job <name>]"
+  echo "Usage: $0 --pushgateway <url> [--job <name>] [--auth <username:password>]"
   exit 1
 }
 
@@ -19,6 +20,7 @@ while [[ "$#" -gt 0 ]]; do
   case $1 in
     --pushgateway) PUSHGATEWAY_URL="$2"; shift ;;
     --job) JOB_NAME="$2"; shift ;;
+    --auth) AUTH="$2"; shift ;;
     *) echo "Unknown parameter: $1"; usage ;;
   esac
   shift
@@ -198,7 +200,11 @@ add_metric "pipeline_build_info" "Build information" "gauge" "1" "repo=\"$REPO\"
 # --- Push metrics ---
 echo ""
 echo "📤 Pushing metrics to Pushgateway..."
-PUSH_RESPONSE=$(echo "$METRICS" | curl -s -w "\n%{http_code}" --data-binary @- "$PUSH_URL")
+if [[ -n "$AUTH" ]]; then
+  PUSH_RESPONSE=$(echo "$METRICS" | curl -s -u "$AUTH" -w "\n%{http_code}" --data-binary @- "$PUSH_URL")
+else
+  PUSH_RESPONSE=$(echo "$METRICS" | curl -s -w "\n%{http_code}" --data-binary @- "$PUSH_URL")
+fi
 HTTP_CODE=$(echo "$PUSH_RESPONSE" | tail -1)
 
 if [[ "$HTTP_CODE" == "200" || "$HTTP_CODE" == "202" ]]; then

@@ -24,10 +24,12 @@ services:
     container_name: grafana
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./grafana-dashboards:/etc/grafana/provisioning/dashboards  # ADD THIS
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning  # ADD THIS
     ports:
       - "3000:3000"
     restart: unless-stopped
@@ -79,6 +81,7 @@ services:
       - DD_ADMIN_PASSWORD=admin123
       - DD_ADMIN_EMAIL=admin@defectdojo.local
       - DD_USE_CELERY=True
+      - DD_ENABLE_PROMETHEUS_EXPORT=True
     depends_on:
       postgres:
         condition: service_healthy
@@ -182,6 +185,19 @@ services:
       - monitoring
     restart: unless-stopped
 
+
+    # 📤 PROMETHEUS PUSHGATEWAY - Accepts metrics from CI/CD pipeline
+  pushgateway:
+    image: prom/pushgateway:latest
+    container_name: prometheus-pushgateway
+    ports:
+      - "9091:9091"
+    restart: unless-stopped
+    networks:
+      - monitoring
+    volumes:
+      - pushgateway_data:/prometheus
+
 volumes:
   prometheus_data:
   grafana_data:
@@ -192,6 +208,7 @@ volumes:
   sonarqube_data:
   sonarqube_extensions:
   sonarqube_logs:
+  pushgateway_data:
 
 networks:
   monitoring:

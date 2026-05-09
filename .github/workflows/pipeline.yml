@@ -11,6 +11,7 @@ jobs:
     # If using GitHub-hosted runner, change this to: runs-on: ubuntu-latest
     # For DefectDojo on localhost:8000, must use self-hosted runner
     runs-on: self-hosted
+    #runs-on: ubuntu-latest
 
     steps:
       # 📥 CHECKOUT
@@ -108,7 +109,8 @@ jobs:
           else
             echo "✅ Quality Gate Passed"
           fi
-      # 🛡️ OWASP DEPENDENCY CHECK (UPDATED → XML)
+
+      # ️ OWASP DEPENDENCY CHECK (Using persistent local storage)
       - name: OWASP Dependency Check
         run: |
           cd app
@@ -116,7 +118,8 @@ jobs:
             -DnvdApiKey=${{ secrets.NVD_API_KEY }} \
             -Dformat=XML \
             -DfailBuildOnCVSS=11 \
-            -DskipProvidedScope=true
+            -DskipProvidedScope=true \
+            -DdataDirectory="$HOME/odc-data"
       # 🛡️ CHECKOV SCAN
       - name: Run Checkov Scan
         continue-on-error: true
@@ -139,6 +142,15 @@ jobs:
             --api-key "${{ secrets.DEFECTDOJO_API_KEY }}" \
             --product "Secure DevOps Pipeline" \
             --engagement "Scan - ${{ github.run_id }}"
+
+      - name: 📊 Push Metrics to Prometheus Pushgateway
+        if: always()
+        continue-on-error: true
+        run: |
+          chmod +x ./scripts/prometheus-metrics.sh
+          ./scripts/prometheus-metrics.sh \
+            --pushgateway "${{ secrets.PUSHGATEWAY_URL }}" \
+            --job "secure_devops_pipeline"
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
