@@ -71,7 +71,7 @@ jobs:
 
       # ️ TRIVY SCAN (UPDATED → JSON + non-blocking)
       - name: Scan Docker Image with Trivy
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: anoop1605/devops-app
           format: json
