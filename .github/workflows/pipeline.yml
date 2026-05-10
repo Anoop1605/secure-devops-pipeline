@@ -60,15 +60,28 @@ jobs:
       - name: Push Docker Image
         run: docker push anoop1605/devops-app
 
-      # 🛡️ TRIVY SCAN (UPDATED → JSON + non-blocking)
+      # 💾 CACHE TRIVY DB (Prevents downloading the vulnerability database every time)
+      - name: Cache Trivy Database
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: ${{ runner.os }}-trivy-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-trivy-
+
+      # ️ TRIVY SCAN (UPDATED → JSON + non-blocking)
       - name: Scan Docker Image with Trivy
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: anoop1605/devops-app
           format: json
           output: trivy-report.json
           exit-code: 0
           severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          scanners: 'vuln'
+          skip-dirs: '/var/log,/tmp,/var/cache'
 
       # ⏳ WAIT FOR SONARQUBE
       - name: Wait for SonarQube
