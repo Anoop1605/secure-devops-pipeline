@@ -28,7 +28,7 @@ scrape_configs:
   # To use DefectDojo metrics, configure environment variable: DD_ENABLE_PROMETHEUS_EXPORT=True
   # For now, we focus on pipeline metrics and Spring Boot metrics
 
-  - job_name: 'defectdojo'
-    static_configs:
-      - targets: ['defectdojo:8000']
-    scrape_interval: 30s
+  # - job_name: 'defectdojo'
+  #   static_configs:
+  #     - targets: ['defectdojo:8000']
+  #   scrape_interval: 30s
