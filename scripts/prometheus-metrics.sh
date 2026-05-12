@@ -218,6 +218,18 @@ add_metric "pipeline_owasp_vulnerabilities_total" "Total vulnerabilities found b
 # --- Build metadata metric ---
 add_metric "pipeline_build_info" "Build information" "gauge" "1" "repo=\"$REPO\",build=\"$BUILD_NUMBER\""
 
+# --- SDOP dashboard compatibility metrics ---
+# These metrics power the SDOP pipeline health dashboard panels.
+PIPELINE_DURATION_SECONDS="${PIPELINE_DURATION_SECONDS:-0}"
+PIPELINE_SUCCESS="${PIPELINE_SUCCESS:-1}"
+
+add_metric "sdop_pipeline_runs_total" "Total number of pipeline runs" "counter" "1"
+add_metric "sdop_pipeline_success_total" "Total number of successful pipeline runs" "counter" "$PIPELINE_SUCCESS"
+add_metric "sdop_pipeline_duration_seconds" "Pipeline duration in seconds" "gauge" "$PIPELINE_DURATION_SECONDS"
+add_metric "sdop_stage_failures_total" "Pipeline failures by stage" "counter" "0" 'stage="security_scans"'
+add_metric "sdop_stage_failures_total" "Pipeline failures by stage" "counter" "0" 'stage="build"'
+add_metric "sdop_stage_failures_total" "Pipeline failures by stage" "counter" "0" 'stage="analysis"'
+
 # --- Push metrics ---
 echo ""
 echo "📤 Pushing metrics to Pushgateway..."

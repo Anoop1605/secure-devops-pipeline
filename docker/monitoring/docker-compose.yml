@@ -24,12 +24,14 @@ services:
     container_name: grafana
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./grafana-dashboards:/etc/grafana/provisioning/dashboards  # ADD THIS
+      - ../../grafana-dashboards:/var/lib/grafana/dashboards:ro
+      - ./grafana-dashboards-provisioning.yaml:/etc/grafana/provisioning/dashboards/default.yaml:ro
+      - ./grafana-datasources-provisioning.yaml:/etc/grafana/provisioning/datasources/default.yaml:ro
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning  # ADD THIS
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
     ports:
       - "3000:3000"
     restart: unless-stopped
