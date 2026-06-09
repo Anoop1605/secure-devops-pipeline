@@ -10,7 +10,7 @@ jobs:
     # 🔧 SELF-HOSTED RUNNER for localhost access
     # If using GitHub-hosted runner, change this to: runs-on: ubuntu-latest
     # For DefectDojo on localhost:8000, must use self-hosted runner
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     #runs-on: ubuntu-latest
 
     steps:
@@ -91,6 +91,7 @@ jobs:
 
       # ⏳ WAIT FOR SONARQUBE
       - name: Wait for SonarQube
+        continue-on-error: true
         run: |
           echo "Waiting for SonarQube..."
           READY=false
@@ -117,6 +118,7 @@ jobs:
 
       #  SONAR SCAN
       - name: SonarQube Scan
+        continue-on-error: true
         run: |
           cd app
           mvn org.sonarsource.scanner.maven:sonar-maven-plugin:4.0.0.4121:sonar \
@@ -162,6 +164,7 @@ jobs:
             --output-file-path /app/checkov-report.json 2>&1 | tee checkov.log || true
       - name: 🛡️ Upload Security Findings to DefectDojo
         if: always()
+        continue-on-error: true
         # 📌 REQUIRES SECRETS: DEFECTDOJO_URL (with http:// prefix) and DEFECTDOJO_API_KEY
         # Example: DEFECTDOJO_URL = http://localhost:8000 (for self-hosted runner)
         # For GitHub-hosted runner, use host LAN IP: http://192.168.x.x:8000 or http://172.17.0.1:8000
