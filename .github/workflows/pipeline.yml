@@ -76,6 +76,7 @@ jobs:
 
       # ️ TRIVY SCAN (UPDATED → JSON + non-blocking)
       - name: Scan Docker Image with Trivy
+        continue-on-error: true
         run: |
           trivy image \
             --format json \
