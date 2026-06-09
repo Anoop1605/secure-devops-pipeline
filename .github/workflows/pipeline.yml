@@ -78,9 +78,9 @@ jobs:
       - name: Scan Docker Image with Trivy
         continue-on-error: true
         run: |
-          trivy image \
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image \
             --format json \
-            --output trivy-report.json \
+            --output /root/.cache/trivy-report.json \
             --exit-code 0 \
             --severity CRITICAL,HIGH \
             --ignore-unfixed \
@@ -163,42 +163,3 @@ jobs:
             --output json \
             --skip-framework helm \
             --output-file-path /app/checkov-report.json 2>&1 | tee checkov.log || true
-      - name: 🛡️ Upload Security Findings to DefectDojo
-        if: always()
-        continue-on-error: true
-        # 📌 REQUIRES SECRETS: DEFECTDOJO_URL (with http:// prefix) and DEFECTDOJO_API_KEY
-        # Example: DEFECTDOJO_URL = http://localhost:8000 (for self-hosted runner)
-        # For GitHub-hosted runner, use host LAN IP: http://192.168.x.x:8000 or http://172.17.0.1:8000
-        run: |
-          chmod +x ./scripts/defectdojo-upload.sh
-          ./scripts/defectdojo-upload.sh \
-            --url "${{ secrets.DEFECTDOJO_URL }}" \
-            --api-key "${{ secrets.DEFECTDOJO_API_KEY }}" \
-            --product "Secure DevOps Pipeline" \
-            --engagement "Scan - ${{ github.run_id }}"
-
-      - name: 📈 Sync DefectDojo Metrics to Grafana
-        if: always()
-        continue-on-error: true
-        env:
-          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
-          DEFECTDOJO_API_KEY: ${{ secrets.DEFECTDOJO_API_KEY }}
-          PUSHGATEWAY_URL: ${{ secrets.PUSHGATEWAY_URL }}
-        run: |
-          chmod +x ./scripts/defectdojo-to-grafana.sh
-          ./scripts/defectdojo-to-grafana.sh \
-            --url "${DEFECTDOJO_URL:-http://localhost:8000}" \
-            --api-key "${DEFECTDOJO_API_KEY}" \
-            --pushgateway "${PUSHGATEWAY_URL:-http://localhost:9091}" \
-            --product "Secure DevOps Pipeline"
-
-      - name: 📊 Push Metrics to Prometheus Pushgateway
-        if: always()
-        continue-on-error: true
-        env:
-          PUSHGATEWAY_URL: ${{ secrets.PUSHGATEWAY_URL }}
-          PUSHGATEWAY_AUTH: ${{ secrets.PUSHGATEWAY_AUTH }}
-        run: |
-          chmod +x ./scripts/prometheus-metrics.sh
-          ./scripts/prometheus-metrics.sh \
-            --job "secure_devops_pipeline"
