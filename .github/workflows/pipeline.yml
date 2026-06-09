@@ -10,7 +10,7 @@ jobs:
     # 🔧 SELF-HOSTED RUNNER for localhost access
     # If using GitHub-hosted runner, change this to: runs-on: ubuntu-latest
     # For DefectDojo on localhost:8000, must use self-hosted runner
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     #runs-on: ubuntu-latest
 
     steps:
@@ -55,7 +55,7 @@ jobs:
 
       # 🐳 BUILD IMAGE
       - name: Build Docker Image
-        run: docker build -t anoop1605/devops-app -f docker/Dockerfile . --cache-from type=local
+        run: docker build -t anoop1605/devops-app -f docker/Dockerfile .
 
       # 🐳 PUSH IMAGE with improved retry logic
       - name: Push Docker Image
