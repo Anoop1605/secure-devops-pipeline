@@ -10,8 +10,8 @@ jobs:
     # 🔧 SELF-HOSTED RUNNER for localhost access
     # If using GitHub-hosted runner, change this to: runs-on: ubuntu-latest
     # For DefectDojo on localhost:8000, must use self-hosted runner
-    runs-on: ubuntu-latest
     #runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
       # 📥 CHECKOUT
