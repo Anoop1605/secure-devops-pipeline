@@ -2,7 +2,15 @@
 
 ## 🎯 START HERE
 
-**New to this fix?** Read these in order:
+**New to the project or local setup?** Read these:
+
+*   🚀 **[docs/TEAM-ONBOARDING-GUIDE.md](docs/TEAM-ONBOARDING-GUIDE.md)** (15 min)
+    - Full system prerequisites (Docker, Java, Maven, keys)
+    - Local caching configurations and speed optimizations (OWASP Dependency Check, Docker layer cache)
+    - Step-by-step local runner and environment config
+    - CLI-only manual scan execution alternatives
+
+**For the Grafana Metrics Fix details:**
 
 1. **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** ⚡ (5 min)
    - Exact URLs to copy-paste
@@ -101,6 +109,7 @@ Then read:
 📄 CODE-CHANGES.md                                 Code comparison
 
 📁 docs/
+   📄 TEAM-ONBOARDING-GUIDE.md                    Onboarding & local setup guide
    📄 URLS-AND-SECRETS-EXACT.md                   Exact values for YOUR setup
    📄 METRICS-CONNECTION-DIAGRAM.md              Visual diagram
    📄 STEP-BY-STEP-TROUBLESHOOTING.md            Phase-by-phase debugging
