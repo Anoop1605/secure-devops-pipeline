@@ -152,7 +152,13 @@ upload_scan() {
 echo ""
 echo "📤 Uploading security scan reports..."
 upload_scan "app/target/dependency-check-report.xml" "Dependency Check Scan" "OWASP Dependency Check"
-upload_scan "checkov-report.json" "Checkov Scan" "Checkov IaC Scan"
+
+CHECKOV_FILE="checkov-report.json"
+if [[ -d "checkov-report.json" && -f "checkov-report.json/results_json.json" ]]; then
+  CHECKOV_FILE="checkov-report.json/results_json.json"
+fi
+upload_scan "$CHECKOV_FILE" "Checkov Scan" "Checkov IaC Scan"
+
 upload_scan "trivy-report.json" "Trivy Scan" "Trivy Container Scan"
 
 echo ""

@@ -117,7 +117,7 @@ When Grafana starts, it doesn't automatically have Prometheus configured as a da
 **Fix:** Manually configure (1-time setup):
 
 1. Open Grafana: http://localhost:3000
-2. Login with `admin/admin`
+2. Login with `admin/cyber`
 3. Go: **Settings** (gear icon, bottom left) → **Data sources**
 4. Click **Add data source**
 5. Select **Prometheus**

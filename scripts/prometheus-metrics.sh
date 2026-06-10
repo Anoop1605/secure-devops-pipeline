@@ -148,44 +148,49 @@ CHECKOV_PASSED=0
 CHECKOV_FAILED=0
 CHECKOV_SKIPPED=0
 
-if [[ -f "checkov-report.json" ]]; then
-  echo "🔍 Parsing Checkov report..."
+CHECKOV_FILE="checkov-report.json"
+if [[ -d "checkov-report.json" && -f "checkov-report.json/results_json.json" ]]; then
+  CHECKOV_FILE="checkov-report.json/results_json.json"
+fi
+
+if [[ -f "$CHECKOV_FILE" ]]; then
+  echo "🔍 Parsing Checkov report from $CHECKOV_FILE..."
   CHECKOV_PASSED=$(python3 -c "
 import json, sys
 try:
-  d = json.load(open('checkov-report.json'))
+  d = json.load(open(sys.argv[1]))
   if isinstance(d, list):
     print(sum(r.get('summary', {}).get('passed', 0) for r in d))
   else:
     print(d.get('summary', {}).get('passed', 0))
 except Exception:
   print(0)
-" 2>/dev/null || echo "0")
+" "$CHECKOV_FILE" 2>/dev/null || echo "0")
   CHECKOV_FAILED=$(python3 -c "
 import json, sys
 try:
-  d = json.load(open('checkov-report.json'))
+  d = json.load(open(sys.argv[1]))
   if isinstance(d, list):
     print(sum(r.get('summary', {}).get('failed', 0) for r in d))
   else:
     print(d.get('summary', {}).get('failed', 0))
 except Exception:
   print(0)
-" 2>/dev/null || echo "0")
+" "$CHECKOV_FILE" 2>/dev/null || echo "0")
   CHECKOV_SKIPPED=$(python3 -c "
 import json, sys
 try:
-  d = json.load(open('checkov-report.json'))
+  d = json.load(open(sys.argv[1]))
   if isinstance(d, list):
     print(sum(r.get('summary', {}).get('skipped', 0) for r in d))
   else:
     print(d.get('summary', {}).get('skipped', 0))
 except Exception:
   print(0)
-" 2>/dev/null || echo "0")
+" "$CHECKOV_FILE" 2>/dev/null || echo "0")
   echo "  PASSED=$CHECKOV_PASSED FAILED=$CHECKOV_FAILED SKIPPED=$CHECKOV_SKIPPED"
 else
-  echo "⚠️  checkov-report.json not found, skipping Checkov metrics"
+  echo "⚠️  $CHECKOV_FILE not found, skipping Checkov metrics"
 fi
 
 add_metric "pipeline_checkov_checks_total" "Total checks by Checkov" "gauge" "$CHECKOV_PASSED" 'result="passed"'

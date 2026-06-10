@@ -95,11 +95,10 @@ fi
 echo "Product id: $product_id"
 
 echo "[2/4] Pulling findings..."
-findings_json=$(curl -s -H "$AUTH_HEADER" "$DEFECTDOJO_API/findings/?product=$product_id&active=true&limit=1000")
+tmp_findings_file=$(mktemp)
+curl -s -H "$AUTH_HEADER" "$DEFECTDOJO_API/findings/?product=$product_id&active=true&limit=1000" > "$tmp_findings_file"
 
 echo "[3/4] Building dashboard-compatible metrics..."
-tmp_findings_file=$(mktemp)
-printf '%s' "$findings_json" > "$tmp_findings_file"
 metrics_payload=$(python3 - "$tmp_findings_file" <<'PY'
 import json
 import sys

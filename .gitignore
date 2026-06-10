@@ -27,3 +27,8 @@ build/
 
 # Ignore git config to prevent secret scanners from flagging it
 .git/config
+
+# Scan Reports & Cache
+trivy-cache/
+trivy-report.json
+checkov-report.json/
