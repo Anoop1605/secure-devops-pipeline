@@ -78,7 +78,7 @@ docker-compose up -d
 ```
 
 ### Step 2: Verify All Services are Healthy
-Run the verification script provided in the repository:
+Run the verification script provided in the repository
 ```bash
 # Return to repository root
 cd ../..
