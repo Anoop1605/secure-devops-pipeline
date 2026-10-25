@@ -5,7 +5,7 @@ on:
     branches:
       - main
 
-jobs:
+jobs: 
   build:
     # 🔧 SELF-HOSTED RUNNER for localhost access
     # If using GitHub-hosted runner, change this to: runs-on: ubuntu-latest
