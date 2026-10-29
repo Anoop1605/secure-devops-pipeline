@@ -1,16 +1,14 @@
-# Conftest
+﻿# Conftest
 
 [![Go Report Card](https://goreportcard.com/badge/open-policy-agent/opa)](https://goreportcard.com/report/open-policy-agent/conftest) [![Netlify](https://api.netlify.com/api/v1/badges/2d928746-3380-4123-b0eb-1fd74ba390db/deploy-status)](https://app.netlify.com/sites/vibrant-villani-65041c/deploys)
 
-Conftest helps you write tests against structured configuration data. Using Conftest you can
-write tests for your Kubernetes configuration, Tekton pipeline definitions, Terraform code,
-Serverless configs or any other config files.
+Conftest helps you write tests against structured configuration data. Use it for Kubernetes manifests, Tekton pipelines, Terraform code, Serverless configs, and other configuration files.
 
-Conftest uses the Rego language from [Open Policy Agent](https://www.openpolicyagent.org/) for writing
-the assertions. You can read more about Rego in [How do I write policies](https://www.openpolicyagent.org/docs/how-do-i-write-policies.html)
-in the Open Policy Agent documentation.
+Conftest uses the Rego language from [Open Policy Agent](https://www.openpolicyagent.org/) for writing assertions. You can learn more in [How do I write policies](https://www.openpolicyagent.org/docs/how-do-i-write-policies.html) in the Open Policy Agent documentation.
 
-Here's a quick example. Save the following as `policy/deployment.rego`:
+## Quick example
+
+Save the following as `policy/deployment.rego`:
 
 ```rego
 package main
@@ -30,7 +28,7 @@ deny[msg] {
 }
 ```
 
-Assuming you have a Kubernetes deployment in `deployment.yaml` you can run Conftest like so:
+Assuming you have a Kubernetes deployment in `deployment.yaml`, you can run Conftest like this:
 
 ```console
 $ conftest test deployment.yaml
@@ -40,13 +38,11 @@ FAIL - deployment.yaml - Containers must provide app label for pod selectors
 2 tests, 0 passed, 0 warnings, 2 failures, 0 exceptions
 ```
 
-Conftest isn't specific to Kubernetes. It will happily let you write tests for any configuration files in a variety of different formats. See the [documentation](https://www.conftest.dev/) for [installation instructions](https://www.conftest.dev/install/) and
-more details about the features.
+Conftest is not limited to Kubernetes. You can write tests for a wide range of configuration file formats. See the [documentation](https://www.conftest.dev/) for [installation instructions](https://www.conftest.dev/install/) and more details about the available features.
 
 ## Want to contribute to Conftest?
 
-* See [DEVELOPMENT.md](DEVELOPMENT.md) to build and test Conftest itself.
-* See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
+- See [DEVELOPMENT.md](DEVELOPMENT.md) to build and test Conftest itself.
+- See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
 
-For discussions and questions join us on the [Open Policy Agent Slack](https://slack.openpolicyagent.org/)
-in the `#opa-conftest` channel. 
+For discussions and questions, join us on the [Open Policy Agent Slack](https://slack.openpolicyagent.org/) in the `#opa-conftest` channel.
