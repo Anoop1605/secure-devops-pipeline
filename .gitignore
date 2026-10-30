@@ -21,9 +21,18 @@ Thumbs.db
 .gradle/
 build/
 
-#Manual
+# Manual
 *.docx
 .gitattributes
+
+# Security scan outputs & local cache
+*-report.json
+*-report.html
+*-report.xml
+trivy-cache/
+.trivy/
+dependency-check-bin/
+dependency-check-data/
 
 # Ignore git config to prevent secret scanners from flagging it
 .git/config
