@@ -8,7 +8,7 @@ An automated, security-hardened Continuous Integration & Continuous Delivery (CI
 
 The pipeline shifts security left across the Software Development Life Cycle (SDLC) by automating SAST, SCA, Container Linting & Scanning, IaC Policy Checks, DAST, DefectDojo vulnerability centralization, and Grafana telemetry.
 
-![Architecture Diagram](../architecture.png)
+![Architecture Diagram](architecture.png)
 
 ### Security Scan Gates
 
@@ -72,4 +72,4 @@ Follow the detailed guides in the `docs/` folder:
 ### 3. Demo & Presentation Guides
 - **Live Demo Script**: [`docs/PROFESSOR-DEMO-SCRIPT.md`](docs/PROFESSOR-DEMO-SCRIPT.md)
 - **Fast Runbook**: [`docs/FINAL-DEMO-GUIDE.md`](docs/FINAL-DEMO-GUIDE.md)
-- **Interview & Technical Q&A**: [`DEVSECOPS_PIPELINE_INTERVIEW_GUIDE.md`](../DEVSECOPS_PIPELINE_INTERVIEW_GUIDE.md)
+- **Interview & Technical Q&A**: [`DEVSECOPS_PIPELINE_INTERVIEW_GUIDE.md`](DEVSECOPS_PIPELINE_INTERVIEW_GUIDE.md)
