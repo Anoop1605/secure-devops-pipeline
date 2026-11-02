@@ -90,54 +90,100 @@ jobs:
             --timeout 30m \
             anoop1605/devops-app
 
-      # ⏳ WAIT FOR SONARQUBE
+      # ⚙️ 1. CONFIGURE RUNNER MEMORY FOR ELASTICSEARCH
+      - name: Set system parameters for SonarQube
+        run: sudo sysctl -w vm.max_map_count=262144
+
+      # 🐳 2. START SONARQUBE CONTAINER
+      - name: Start SonarQube Container
+        run: |
+          docker run -d --name sonarqube \
+            -p 9000:9000 \
+            -e SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true \
+            sonarqube:community
+
+      # ⏳ 3. WAIT FOR SONARQUBE
       - name: Wait for SonarQube
-        continue-on-error: true
         run: |
           echo "Waiting for SonarQube..."
+          MAX_ATTEMPTS=60
           READY=false
-          MAX_ATTEMPTS=120
           for i in $(seq 1 $MAX_ATTEMPTS); do
-            if curl -s http://127.0.0.1:9000/api/system/status | grep -q "UP"; then
+            # Verify the container hasn't crashed
+            if [ "$(docker inspect -f '{{.State.Running}}' sonarqube 2>/dev/null)" != "true" ]; then
+              echo "❌ SonarQube container exited unexpectedly! Dumping logs:"
+              docker logs sonarqube --tail 50
+              exit 1
+            fi
+
+            # Check status endpoint
+            if curl -s -f http://127.0.0.1:9000/api/system/status | grep -q '"status":"UP"'; then
               echo "✅ SonarQube is ready!"
               READY=true
               break
             fi
+
             echo "Still starting... (Attempt $i/$MAX_ATTEMPTS)"
             sleep 5
           done
-          if [ "$READY" = false ]; then
-            echo "❌ SonarQube failed to start in time!"
-            echo "Debugging: Checking Docker containers..."
-            docker ps -a
-            docker logs sonarqube 2>&1 | tail -20
+
+          if [ "$READY" = "false" ]; then
+            echo "❌ SonarQube failed to start in time! Container logs:"
+            docker logs sonarqube --tail 50
             exit 1
           fi
-      # 📦 INSTALL jq
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
 
-      #  SONAR SCAN
+      # 🔑 4. CREATE PROJECT & GENERATE ANALYSIS TOKEN ON THE FLY
+      - name: Setup SonarQube Project and Token
+        run: |
+          # Wait a few seconds for DB schema creation to settle
+          sleep 10
+          
+          # Create project
+          curl -s -u admin:admin -X POST "http://127.0.0.1:9000/api/projects/create?name=secure-devops&project=secure-devops" || true
+          
+          # Generate a dedicated runner token
+          TOKEN_RESPONSE=$(curl -s -u admin:admin -X POST "http://127.0.0.1:9000/api/user_tokens/generate?name=ci-token")
+          SONAR_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.token // empty')
+          
+          # Fallback to default admin credentials if token API isn't needed
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "Failed to generate token, using basic auth"
+            echo "SONAR_AUTH=-Dsonar.login=admin -Dsonar.password=admin" >> $GITHUB_ENV
+          else
+            echo "SONAR_TOKEN=$SONAR_TOKEN" >> $GITHUB_ENV
+            echo "SONAR_AUTH=-Dsonar.login=$SONAR_TOKEN" >> $GITHUB_ENV
+          fi
+
+      # 🔍 5. RUN SONARQUBE SCAN
       - name: SonarQube Scan
-        continue-on-error: true
         run: |
           cd app
           mvn org.sonarsource.scanner.maven:sonar-maven-plugin:4.0.0.4121:sonar \
             -Dsonar.projectKey=secure-devops \
             -Dsonar.host.url=http://127.0.0.1:9000 \
-            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
-      # ✅ QUALITY GATE
+            $SONAR_AUTH
+
+      # ✅ 6. QUALITY GATE
       - name: Check SonarQube Quality Gate
-        continue-on-error: true
         run: |
           echo "Checking Quality Gate..."
-          sleep 20
-          STATUS=$(curl -s -u ${{ secrets.SONAR_TOKEN }}: \
-          "http://127.0.0.1:9000/api/qualitygates/project_status?projectKey=secure-devops" \
-          | jq -r '.projectStatus.status')
+          # Give the compute engine a moment to process the analysis report
+          sleep 15
+          
+          AUTH_HEADER="admin:admin"
+          if [ -n "$SONAR_TOKEN" ]; then
+            AUTH_HEADER="${SONAR_TOKEN}:"
+          fi
+
+          STATUS=$(curl -s -u "$AUTH_HEADER" \
+            "http://127.0.0.1:9000/api/qualitygates/project_status?projectKey=secure-devops" \
+            | jq -r '.projectStatus.status')
+
           echo "Quality Gate Status: $STATUS"
           if [ "$STATUS" != "OK" ]; then
-            echo "❌ Quality Gate Failed"
+            echo "❌ Quality Gate Failed: $STATUS"
+            exit 1
           else
             echo "✅ Quality Gate Passed"
           fi
