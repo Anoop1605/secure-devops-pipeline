@@ -35,11 +35,13 @@ jobs:
           docker run --rm -v $PWD:/repo ghcr.io/trufflesecurity/trufflehog:latest \
           filesystem /repo --fail --no-update
       # ☕ JAVA
-      - name: Set up Java 17
-        uses: actions/setup-java@v4.2.1
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
         with:
-          java-version: '17'
           distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
 
       # 📦 BUILD
       - name: Build JAR
@@ -188,16 +190,23 @@ jobs:
             echo "✅ Quality Gate Passed"
           fi
 
+      # 💾 CACHE NVD DATA FOR DEPENDENCY-CHECK
+      - name: Cache NVD Data
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/owasp/dependency-check-data
+          key: ${{ runner.os }}-nvd-data-${{ steps.date.outputs.date }}
+          restore-keys: |
+            ${{ runner.os }}-nvd-data-
+
+
       # ️ OWASP DEPENDENCY CHECK (Using persistent local storage)
       - name: OWASP Dependency Check
         run: |
           cd app
           mvn org.owasp:dependency-check-maven:check \
             -DnvdApiKey=${{ secrets.NVD_API_KEY }} \
-            -Dformat=XML \
-            -DfailBuildOnCVSS=11 \
-            -DskipProvidedScope=true \
-            -DdataDirectory="$HOME/odc-data"
+            -DnvdApiDelay=2000
       # 🛡️ CHECKOV SCAN
       - name: Run Checkov Scan
         continue-on-error: true
