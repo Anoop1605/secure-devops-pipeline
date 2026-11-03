@@ -1,163 +1,42 @@
-#!/bin/bash
-# DefectDojo Upload Script for Secure DevOps Pipeline
+#!/usr/bin/env bash
+set -euo pipefail
 
-set -e
+# Required environment variables
+: "${DEFECTDOJO_URL:?DEFECTDOJO_URL not set}"
+: "${DEFECTDOJO_TOKEN:?DEFECTDOJO_TOKEN not set}"
+: "${ENGAGEMENT_ID:?ENGAGEMENT_ID not set}"
 
-DEFECTDOJO_URL=""
-API_KEY=""
-PRODUCT_NAME="Secure DevOps Pipeline"
-ENGAGEMENT_NAME="CI Pipeline Run"
-
-usage() {
-  echo "Usage: $0 --url <defectdojo_url> --api-key <api_key> [--product <name>] [--engagement <name>]"
-  exit 1
-}
-
-while [[ "$#" -gt 0 ]]; do
-  case $1 in
-    --url) DEFECTDOJO_URL="$2"; shift ;;
-    --api-key) API_KEY="$2"; shift ;;
-    --product) PRODUCT_NAME="$2"; shift ;;
-    --engagement) ENGAGEMENT_NAME="$2"; shift ;;
-    *) echo "Unknown parameter: $1"; usage ;;
-  esac
-  shift
-done
-
-if [[ -z "$DEFECTDOJO_URL" || -z "$API_KEY" ]]; then
-  echo "❌ Error: --url and --api-key are required"
-  usage
-fi
-
-# Strip trailing slash from URL if present to prevent double slashes
-DEFECTDOJO_URL=${DEFECTDOJO_URL%/}
-
-AUTH_HEADER="Authorization: Token $API_KEY"
-CONTENT_TYPE="Content-Type: application/json"
-API_BASE="$DEFECTDOJO_URL/api/v2"
-
-echo "=================================================="
-echo "🛡️  DefectDojo Upload - Secure DevOps Pipeline"
-echo "=================================================="
-echo "URL: $DEFECTDOJO_URL"
-echo "Product: $PRODUCT_NAME"
-echo "Engagement: $ENGAGEMENT_NAME"
-echo ""
-
-# Temporarily disable exit-on-error so we can catch curl connection failures cleanly
-set +e
-
-# Step 1: Get or create product
-echo "📦 Looking up product: $PRODUCT_NAME"
-# FIX: Use -G and --data-urlencode to safely handle spaces in the product name
-PRODUCT_RESPONSE=$(curl -s -w "\n%{http_code}" -G \
-  -H "$AUTH_HEADER" \
-  --data-urlencode "name=$PRODUCT_NAME" \
-  "$API_BASE/products/")
-
-# Re-enable exit-on-error
-set -e
-
-HTTP_CODE=$(echo "$PRODUCT_RESPONSE" | tail -1)
-BODY=$(echo "$PRODUCT_RESPONSE" | head -n -1)
-
-# Check if curl failed entirely (e.g., 000 means connection refused)
-if [[ "$HTTP_CODE" == "000" || -z "$HTTP_CODE" ]]; then
-  echo "❌ CRITICAL ERROR: Could not connect to DefectDojo at $DEFECTDOJO_URL"
-  echo "   (If using 'localhost' inside a Docker runner, change it to the Host IP like 192.168.x.x)"
-  exit 1
-fi
-
-PRODUCT_COUNT=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('count',0))" 2>/dev/null || echo "0")
-
-if [[ "$PRODUCT_COUNT" -gt 0 ]]; then
-  PRODUCT_ID=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['results'][0]['id'])" 2>/dev/null || echo "")
-  echo "✅ Found existing product ID: $PRODUCT_ID"
-else
-  echo "📝 Creating new product: $PRODUCT_NAME"
-  CREATE_PRODUCT=$(curl -s -w "\n%{http_code}" -X POST \
-    -H "$AUTH_HEADER" \
-    -H "$CONTENT_TYPE" \
-    "$API_BASE/products/" \
-    -d "{\"name\": \"$PRODUCT_NAME\", \"description\": \"Secure DevOps Pipeline security findings\", \"prod_type\": 1}")
-  
-  HTTP_CODE=$(echo "$CREATE_PRODUCT" | tail -1)
-  PRODUCT_BODY=$(echo "$CREATE_PRODUCT" | head -n -1)
-  PRODUCT_ID=$(echo "$PRODUCT_BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null || echo "")
-  
-  if [[ -z "$PRODUCT_ID" ]]; then
-    echo "❌ Failed to create product (HTTP $HTTP_CODE)"
-    echo "Response: $PRODUCT_BODY"
-    exit 1
-  fi
-  echo "✅ Created product ID: $PRODUCT_ID"
-fi
-
-# Step 2: Create engagement
-echo ""
-echo "📋 Creating engagement: $ENGAGEMENT_NAME"
-TODAY=$(date +%Y-%m-%d)
-CREATE_ENG=$(curl -s -w "\n%{http_code}" -X POST \
-  -H "$AUTH_HEADER" \
-  -H "$CONTENT_TYPE" \
-  "$API_BASE/engagements/" \
-  -d "{\"name\": \"$ENGAGEMENT_NAME\", \"product\": $PRODUCT_ID, \"target_start\": \"$TODAY\", \"target_end\": \"$TODAY\", \"engagement_type\": \"CI/CD\", \"status\": \"In Progress\"}")
-
-HTTP_CODE=$(echo "$CREATE_ENG" | tail -1)
-ENG_BODY=$(echo "$CREATE_ENG" | head -n -1)
-ENGAGEMENT_ID=$(echo "$ENG_BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null || echo "")
-
-if [[ -z "$ENGAGEMENT_ID" ]]; then
-  echo "❌ Failed to create engagement (HTTP $HTTP_CODE)"
-  echo "Response: $ENG_BODY"
-  exit 1
-fi
-echo "✅ Created engagement ID: $ENGAGEMENT_ID"
-
-# Helper function to upload a scan file
 upload_scan() {
-  local FILE="$1"
-  local SCAN_TYPE="$2"
-  local LABEL="$3"
+  local scan_file="$1"
+  local scan_type="$2"
 
-  if [[ ! -f "$FILE" ]]; then
-    echo "⚠️  Skipping $LABEL: file not found at $FILE"
+  if [ ! -f "$scan_file" ] || [ ! -s "$scan_file" ]; then
+    echo "[-] Scan file $scan_file not found or empty. Skipping."
     return 0
   fi
 
-  echo ""
-  echo "⬆️  Uploading $LABEL..."
-  UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-    -H "$AUTH_HEADER" \
-    "$API_BASE/import-scan/" \
-    -F "file=@$FILE" \
-    -F "scan_type=$SCAN_TYPE" \
-    -F "engagement=$ENGAGEMENT_ID" \
+  echo "[+] Uploading $scan_file ($scan_type) to Engagement $ENGAGEMENT_ID..."
+  
+  HTTP_RESPONSE=$(curl -s -w "%{http_code}" -o response.json \
+    -X POST "${DEFECTDOJO_URL%/}/api/v2/import-scan/" \
+    -H "Authorization: Token ${DEFECTDOJO_TOKEN}" \
     -F "active=true" \
-    -F "verified=false" \
-    -F "minimum_severity=Info")
-    
-  HTTP_CODE=$(echo "$UPLOAD_RESPONSE" | tail -1)
-  UPLOAD_BODY=$(echo "$UPLOAD_RESPONSE" | head -n -1)
+    -F "verified=true" \
+    -F "scan_type=${scan_type}" \
+    -F "engagement=${ENGAGEMENT_ID}" \
+    -F "file=@${scan_file}")
 
-  if [[ "$HTTP_CODE" == "201" || "$HTTP_CODE" == "200" ]]; then
-    echo "✅ $LABEL uploaded successfully"
+  if [ "$HTTP_RESPONSE" -eq 201 ]; then
+    echo "[✓] Successfully imported $scan_type (HTTP 201)."
   else
-    echo "⚠️  $LABEL upload returned HTTP $HTTP_CODE"
-    echo "   Response: $UPLOAD_BODY"
+    echo "[!] Failed to import $scan_type. HTTP Code: $HTTP_RESPONSE"
+    cat response.json
+    echo ""
+    return 1
   fi
 }
 
-# Step 3: Upload scan reports
-echo ""
-echo "📤 Uploading security scan reports..."
-upload_scan "app/target/dependency-check-report.xml" "Dependency Check Scan" "OWASP Dependency Check"
-upload_scan "checkov-report.json" "Checkov Scan" "Checkov IaC Scan"
-upload_scan "trivy-report.json" "Trivy Scan" "Trivy Container Scan"
-
-echo ""
-echo "=================================================="
-echo "✅ DefectDojo upload complete!"
-echo "   Product ID:    $PRODUCT_ID"
-echo "   Engagement ID: $ENGAGEMENT_ID"
-echo "=================================================="
+# Example file mappings (adjust filenames to match your pipeline's outputs)
+upload_scan "gitleaks-report.json" "Gitleaks Scan"
+upload_scan "trivy-results.json" "Trivy Scan"
+upload_scan "checkov-results.json" "Checkov Scan"

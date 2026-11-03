@@ -10,8 +10,8 @@ jobs:
     # 🔧 SELF-HOSTED RUNNER for localhost access
     # If using GitHub-hosted runner, change this to: runs-on: ubuntu-latest
     # For DefectDojo on localhost:8000, must use self-hosted runner
-    runs-on: ubuntu-latest
     #runs-on: ubuntu-latest
+    runs-on: self-hosted 
 
     steps:
       # 📥 CHECKOUT
@@ -207,6 +207,7 @@ jobs:
           mvn org.owasp:dependency-check-maven:check \
             -DnvdApiKey=${{ secrets.NVD_API_KEY }} \
             -DnvdApiDelay=2000
+
       # 🛡️ CHECKOV SCAN
       - name: Run Checkov Scan
         continue-on-error: true
@@ -218,3 +219,11 @@ jobs:
             --output json \
             --skip-framework helm \
             --output-file-path /app/checkov-report.json 2>&1 | tee checkov.log || true
+
+      - name: Ingest Findings into DefectDojo
+        env:
+          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+          DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
+        run: |
+          chmod +x scripts/defectdojo-upload.sh
+          ./scripts/defectdojo-upload.sh

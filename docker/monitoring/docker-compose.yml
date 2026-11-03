@@ -79,6 +79,7 @@ services:
       - DD_SECRET_KEY=change-me-to-a-random-secret-key-in-production
       - DD_DEBUG=False
       - DD_ALLOWED_HOSTS=*
+      - DD_CSRF_TRUSTED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080,https://*.ngrok-free.app
       - DD_ADMIN_USER=admin
       - DD_ADMIN_PASSWORD=admin123
       - DD_ADMIN_EMAIL=admin@defectdojo.local
