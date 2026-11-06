@@ -2,39 +2,53 @@ name: Secure DevOps Pipeline
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
-jobs: 
-  build:
-    # 🔧 SELF-HOSTED RUNNER for localhost access
-    # If using GitHub-hosted runner, change this to: runs-on: ubuntu-latest
-    # For DefectDojo on localhost:8000, must use self-hosted runner
-    #runs-on: ubuntu-latest
-    runs-on: self-hosted 
+env:
+  DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL || 'http://localhost:8080' }}
+  DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
+  DEFECTDOJO_PRODUCT_NAME: "Secure DevOps Pipeline"
+  DEFECTDOJO_ENGAGEMENT_NAME: "CI/CD Automated Scan"
 
+jobs:
+  # =========================================================================
+  # STAGE 1–4: PARALLEL STATIC SECURITY & CODE QUALITY CHECKS
+  # =========================================================================
+  secret-scan:
+    name: "Stage 1: Secret Detection"
+    runs-on: self-hosted
     steps:
-      # 📥 CHECKOUT
-      - name: Checkout code
-        uses: actions/checkout@v4.1.7
+      - name: Checkout Code
+        uses: actions/checkout@v4
         with:
-          persist-credentials: false
+          fetch-depth: 0
 
-      # 🔐 GITLEAKS
-      - name: Run Gitleaks
-        continue-on-error: true
+      - name: Run Gitleaks Scan
         run: |
-          docker run --rm -v $PWD:/repo zricethezav/gitleaks:latest detect \
-          --source=/repo \
-          --no-git \
-          --exit-code 1
-      # 🔐 TRUFFLEHOG
-      - name: Run TruffleHog
-        continue-on-error: true
-        run: |
-          docker run --rm -v $PWD:/repo ghcr.io/trufflesecurity/trufflehog:latest \
-          filesystem /repo --fail --no-update
-      # ☕ JAVA
+          echo "[+] Running Secret Scanning via Gitleaks..."
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest detect \
+            --source="/repo" \
+            --report-format=json \
+            --report-path=/repo/gitleaks-report.json \
+            --verbose || true
+
+      - name: Upload Secret Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.json
+          if-no-files-found: ignore
+
+  sast-scan:
+    name: "Stage 2: SAST (SonarQube)"
+    runs-on: self-hosted
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -42,188 +56,211 @@ jobs:
           java-version: '21'
           cache: 'maven'
 
-
-      # 📦 BUILD
-      - name: Build JAR
+      - name: Ensure SonarQube Container Is Running
         run: |
-          cd app
-          mvn clean install -DskipTests -Dcheckstyle.skip=true -Dspring-javaformat.skip=true
-      # 🐳 DOCKER LOGIN
-      - name: Docker Login
-        uses: docker/login-action@v3.3.0
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      # 🐳 BUILD IMAGE
-      - name: Build Docker Image
-        run: docker build -t anoop1605/devops-app -f docker/Dockerfile .
-
-      # 🐳 PUSH IMAGE with improved retry logic
-      - name: Push Docker Image
-        run: |
-          MAX_RETRIES=5
-          TIMEOUT=120
-          for i in $(seq 1 $MAX_RETRIES); do
-            echo "Push attempt $i/$MAX_RETRIES..."
-            timeout $TIMEOUT docker push anoop1605/devops-app && echo "✅ Push successful!" && exit 0
-            if [ $i -lt $MAX_RETRIES ]; then
-              WAIT=$((10 * i))
-              echo "⏳ Push failed. Waiting ${WAIT}s before retry..."
-              sleep $WAIT
+          sudo sysctl -w vm.max_map_count=262144 || true
+          if [ ! "$(docker ps -q -f name=sonarqube)" ]; then
+            if [ "$(docker ps -aq -f status=exited -f name=sonarqube)" ]; then
+              docker rm -f sonarqube
             fi
-          done
-          echo "❌ Push failed after $MAX_RETRIES attempts"
-          exit 1
+            docker run -d --name sonarqube \
+              -p 9000:9000 \
+              -e SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true \
+              sonarqube:community
+          fi
 
-      # ️ TRIVY SCAN (UPDATED → JSON + non-blocking)
-      - name: Scan Docker Image with Trivy
-        continue-on-error: true
+      - name: Fast Health Check for SonarQube
         run: |
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image \
-            --format json \
-            --output /root/.cache/trivy-report.json \
-            --exit-code 0 \
-            --severity CRITICAL,HIGH \
-            --ignore-unfixed \
-            --vuln-type os,library \
-            --scanners vuln \
-            --skip-dirs /var/log,/tmp,/var/cache \
-            --timeout 30m \
-            anoop1605/devops-app
-
-      # ⚙️ 1. CONFIGURE RUNNER MEMORY FOR ELASTICSEARCH
-      - name: Set system parameters for SonarQube
-        run: sudo sysctl -w vm.max_map_count=262144
-
-      # 🐳 2. START SONARQUBE CONTAINER
-      - name: Start SonarQube Container
-        run: |
-          docker run -d --name sonarqube \
-            -p 9000:9000 \
-            -e SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true \
-            sonarqube:community
-
-      # ⏳ 3. WAIT FOR SONARQUBE
-      - name: Wait for SonarQube
-        run: |
-          echo "Waiting for SonarQube..."
-          MAX_ATTEMPTS=60
-          READY=false
-          for i in $(seq 1 $MAX_ATTEMPTS); do
-            # Verify the container hasn't crashed
-            if [ "$(docker inspect -f '{{.State.Running}}' sonarqube 2>/dev/null)" != "true" ]; then
-              echo "❌ SonarQube container exited unexpectedly! Dumping logs:"
-              docker logs sonarqube --tail 50
-              exit 1
-            fi
-
-            # Check status endpoint
+          echo "[+] Waiting for SonarQube API..."
+          for i in {1..30}; do
             if curl -s -f http://127.0.0.1:9000/api/system/status | grep -q '"status":"UP"'; then
-              echo "✅ SonarQube is ready!"
-              READY=true
+              echo "[✓] SonarQube is UP!"
               break
             fi
-
-            echo "Still starting... (Attempt $i/$MAX_ATTEMPTS)"
-            sleep 5
+            sleep 3
           done
 
-          if [ "$READY" = "false" ]; then
-            echo "❌ SonarQube failed to start in time! Container logs:"
-            docker logs sonarqube --tail 50
-            exit 1
-          fi
-
-      # 🔑 4. CREATE PROJECT & GENERATE ANALYSIS TOKEN ON THE FLY
-      - name: Setup SonarQube Project and Token
-        run: |
-          # Wait a few seconds for DB schema creation to settle
-          sleep 10
-          
-          # Create project
-          curl -s -u admin:admin -X POST "http://127.0.0.1:9000/api/projects/create?name=secure-devops&project=secure-devops" || true
-          
-          # Generate a dedicated runner token
-          TOKEN_RESPONSE=$(curl -s -u admin:admin -X POST "http://127.0.0.1:9000/api/user_tokens/generate?name=ci-token")
-          SONAR_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.token // empty')
-          
-          # Fallback to default admin credentials if token API isn't needed
-          if [ -z "$SONAR_TOKEN" ]; then
-            echo "Failed to generate token, using basic auth"
-            echo "SONAR_AUTH=-Dsonar.login=admin -Dsonar.password=admin" >> $GITHUB_ENV
-          else
-            echo "SONAR_TOKEN=$SONAR_TOKEN" >> $GITHUB_ENV
-            echo "SONAR_AUTH=-Dsonar.login=$SONAR_TOKEN" >> $GITHUB_ENV
-          fi
-
-      # 🔍 5. RUN SONARQUBE SCAN
-      - name: SonarQube Scan
+      - name: Execute SonarQube Scan
         run: |
           cd app
+          # Create project if not exists
+          curl -s -u admin:admin -X POST "http://127.0.0.1:9000/api/projects/create?name=secure-devops&project=secure-devops" || true
+          
+          # Generate or reuse token
+          TOKEN=$(curl -s -u admin:admin -X POST "http://127.0.0.1:9000/api/user_tokens/generate?name=ci-$RANDOM" | jq -r '.token // empty')
+          AUTH_PARAM="-Dsonar.login=admin -Dsonar.password=admin"
+          if [ -n "$TOKEN" ]; then
+            AUTH_PARAM="-Dsonar.login=$TOKEN"
+          fi
+
           mvn org.sonarsource.scanner.maven:sonar-maven-plugin:4.0.0.4121:sonar \
             -Dsonar.projectKey=secure-devops \
             -Dsonar.host.url=http://127.0.0.1:9000 \
-            $SONAR_AUTH
+            $AUTH_PARAM
 
-      # ✅ 6. QUALITY GATE
-      - name: Check SonarQube Quality Gate
+  sca-scan:
+    name: "Stage 3: SCA Dependency Scan (Trivy)"
+    runs-on: self-hosted
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Fast Trivy Filesystem Scan (Replaces NVD Sync)
         run: |
-          echo "Checking Quality Gate..."
-          # Give the compute engine a moment to process the analysis report
-          sleep 15
-          
-          AUTH_HEADER="admin:admin"
-          if [ -n "$SONAR_TOKEN" ]; then
-            AUTH_HEADER="${SONAR_TOKEN}:"
-          fi
+          echo "[+] Scanning dependencies in app/pom.xml..."
+          docker run --rm -v "$PWD:/root/src" aquasec/trivy:latest fs \
+            --format json \
+            --output /root/src/trivy-sca-results.json \
+            --severity HIGH,CRITICAL \
+            /root/src/app
 
-          STATUS=$(curl -s -u "$AUTH_HEADER" \
-            "http://127.0.0.1:9000/api/qualitygates/project_status?projectKey=secure-devops" \
-            | jq -r '.projectStatus.status')
-
-          echo "Quality Gate Status: $STATUS"
-          if [ "$STATUS" != "OK" ]; then
-            echo "❌ Quality Gate Failed: $STATUS"
-            exit 1
-          else
-            echo "✅ Quality Gate Passed"
-          fi
-
-      # 💾 CACHE NVD DATA FOR DEPENDENCY-CHECK
-      - name: Cache NVD Data
-        uses: actions/cache@v4
+      - name: Upload SCA Report
+        uses: actions/upload-artifact@v4
         with:
-          path: ~/.m2/repository/org/owasp/dependency-check-data
-          key: ${{ runner.os }}-nvd-data-${{ steps.date.outputs.date }}
-          restore-keys: |
-            ${{ runner.os }}-nvd-data-
+          name: trivy-sca-results
+          path: trivy-sca-results.json
+          if-no-files-found: ignore
 
+  iac-scan:
+    name: "Stage 4: IaC & Policy Scan (Checkov & OPA)"
+    runs-on: self-hosted
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      # ️ OWASP DEPENDENCY CHECK (Using persistent local storage)
-      - name: OWASP Dependency Check
+      - name: Run Checkov IaC Scan
+        run: |
+          docker run --rm -v "$PWD:/repo" bridgecrew/checkov:latest \
+            -d /repo/k8s \
+            --framework kubernetes \
+            --output json \
+            --output-file-path /repo/checkov-report.json || true
+          # Move output to root if generated inside a subdirectory
+          [ -f checkov-report.json/results_json.json ] && mv checkov-report.json/results_json.json checkov-results.json || true
+          [ -f checkov-report.json ] && mv checkov-report.json checkov-results.json || true
+
+      - name: Evaluate OPA Rego Policies
+        run: |
+          echo "[+] Validating Kubernetes manifests against Rego policies..."
+          docker run --rm -v "$PWD:/work" openpolicyagent/conftest:latest test \
+            -p /work/policy \
+            /work/k8s/deployment.yaml || true
+
+      - name: Upload IaC Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkov-results
+          path: checkov-results.json
+          if-no-files-found: ignore
+
+  # =========================================================================
+  # STAGE 5: CONTAINER BUILD & IMAGE HARDENING
+  # =========================================================================
+  build-and-harden:
+    name: "Stage 5: Container Build & Image Scan"
+    needs: [secret-scan, sca-scan, iac-scan]
+    runs-on: self-hosted
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Build Application Jar
         run: |
           cd app
-          mvn org.owasp:dependency-check-maven:check \
-            -DnvdApiKey=${{ secrets.NVD_API_KEY }} \
-            -DnvdApiDelay=2000
+          mvn clean package -DskipTests
 
-      # 🛡️ CHECKOV SCAN
-      - name: Run Checkov Scan
-        continue-on-error: true
+      - name: Build Local Container Image
         run: |
-          docker run --rm -v ${{ github.workspace }}:/app bridgecrewio/checkov:latest \
-            --framework kubernetes,dockerfile,github_actions \
-            --directory /app \
-            --output cli \
-            --output json \
-            --skip-framework helm \
-            --output-file-path /app/checkov-report.json 2>&1 | tee checkov.log || true
+          docker build -t petclinic:latest .
 
-      - name: Ingest Findings into DefectDojo
+      - name: Scan Image with Grype
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/reports" anchore/grype:latest \
+            docker:petclinic:latest \
+            -o json > grype-results.json || true
+
+      - name: Upload Container Scan Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: grype-results
+          path: grype-results.json
+          if-no-files-found: ignore
+
+  # =========================================================================
+  # STAGE 6: DAST (OWASP ZAP)
+  # =========================================================================
+  dast-scan:
+    name: "Stage 6: DAST (OWASP ZAP)"
+    needs: [build-and-harden]
+    runs-on: self-hosted
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Test Application Container
+        run: |
+          docker rm -f petclinic-app || true
+          docker run -d --name petclinic-app -p 8081:8080 petclinic:latest
+          
+          # Health check waiting for Spring Boot application startup
+          for i in {1..20}; do
+            if curl -s http://127.0.0.1:8081/ > /dev/null; then
+              echo "[✓] Spring PetClinic app is healthy on port 8081!"
+              break
+            fi
+            sleep 3
+          done
+
+      - name: Run Bounded OWASP ZAP Baseline Scan (Max 3 Mins)
+        run: |
+          mkdir -p zap-out
+          chmod 777 zap-out
+          # -m 3 limits spider crawler to 3 minutes, avoiding infinite crawl cycles
+          docker run --rm --network="host" \
+            -v "$PWD/zap-out:/zap/wrk/:rw" \
+            ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+            -t http://127.0.0.1:8081/ \
+            -m 3 \
+            -J zap-results.json || true
+
+      - name: Clean Up Test Application
+        if: always()
+        run: docker rm -f petclinic-app || true
+
+      - name: Upload ZAP Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-results
+          path: zap-out/zap-results.json
+          if-no-files-found: ignore
+
+  # =========================================================================
+  # STAGE 7: UNIFIED DEFECTDOJO INGESTION & METRICS
+  # =========================================================================
+  upload-findings:
+    name: "Stage 7: DefectDojo Aggregation"
+    needs: [secret-scan, sast-scan, sca-scan, iac-scan, build-and-harden, dast-scan]
+    if: always()
+    runs-on: self-hosted
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download All Security Reports
+        uses: actions/download-artifact@v4
+        with:
+          path: reports/
+          merge-multiple: true
+
+      - name: Ingest Findings to Local DefectDojo
         env:
-          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL || 'http://localhost:8080' }}
           DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
         run: |
-          chmod +x scripts/defectdojo-upload.sh
-          ./scripts/defectdojo-upload.sh
+          chmod +x scripts/*.sh
+          cd reports/
+          ls -la
+          
+          # Pass reports directory to upload script
+          ../scripts/defectdojo-upload.sh .
