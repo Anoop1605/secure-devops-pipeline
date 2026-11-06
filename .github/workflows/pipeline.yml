@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL || 'http://localhost:8080' }}
+  DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL || 'http://localhost:8000' }}
   DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
   DEFECTDOJO_PRODUCT_NAME: "Secure DevOps Pipeline"
   DEFECTDOJO_ENGAGEMENT_NAME: "CI/CD Automated Scan"
@@ -59,10 +59,11 @@ jobs:
       - name: Ensure SonarQube Container Is Running
         run: |
           sudo sysctl -w vm.max_map_count=262144 || true
-          if [ ! "$(docker ps -q -f name=sonarqube)" ]; then
-            if [ "$(docker ps -aq -f status=exited -f name=sonarqube)" ]; then
-              docker rm -f sonarqube
-            fi
+          if docker ps --format '{{.Names}}' | grep -Eq '^sonarqube$'; then
+            echo "[✓] SonarQube container is already running. Reusing existing instance."
+          else
+            echo "[+] Starting fresh SonarQube container..."
+            docker rm -f sonarqube 2>/dev/null || true
             docker run -d --name sonarqube \
               -p 9000:9000 \
               -e SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true \
@@ -98,17 +99,35 @@ jobs:
             -Dsonar.host.url=http://127.0.0.1:9000 \
             $AUTH_PARAM
 
-  sca-scan:
+ sca-scan:
     name: "Stage 3: SCA Dependency Scan (Trivy)"
     runs-on: self-hosted
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Fast Trivy Filesystem Scan (Replaces NVD Sync)
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Resolve Maven Dependencies Locally
         run: |
-          echo "[+] Scanning dependencies in app/pom.xml..."
-          docker run --rm -v "$PWD:/root/src" aquasec/trivy:latest fs \
+          cd app
+          # Pre-populates ~/.m2 cache so Trivy does not hit Maven Central
+          mvn dependency:resolve -DskipTests || true
+
+      - name: Run Offline-Aware Trivy Filesystem Scan
+        run: |
+          echo "[+] Scanning dependencies using local Maven cache..."
+          docker run --rm \
+            -v "$HOME/.m2:/root/.m2" \
+            -v "$PWD:/root/src" \
+            aquasec/trivy:latest fs \
+            --skip-version-check \
+            --offline-scan \
             --format json \
             --output /root/src/trivy-sca-results.json \
             --severity HIGH,CRITICAL \
@@ -152,7 +171,7 @@ jobs:
           name: checkov-results
           path: checkov-results.json
           if-no-files-found: ignore
-          
+
       # Place it here at the end of the job:
       - name: Fix Workspace Permissions
         if: always()
@@ -260,7 +279,7 @@ jobs:
 
       - name: Ingest Findings to Local DefectDojo
         env:
-          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL || 'http://localhost:8080' }}
+          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL || 'http://localhost:8000' }}
           DEFECTDOJO_TOKEN: ${{ secrets.DEFECTDOJO_TOKEN }}
         run: |
           chmod +x scripts/*.sh
