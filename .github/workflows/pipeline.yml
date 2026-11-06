@@ -99,7 +99,7 @@ jobs:
             -Dsonar.host.url=http://127.0.0.1:9000 \
             $AUTH_PARAM
 
- sca-scan:
+  sca-scan:
     name: "Stage 3: SCA Dependency Scan (Trivy)"
     runs-on: self-hosted
     steps:
