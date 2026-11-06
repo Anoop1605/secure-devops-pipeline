@@ -56,13 +56,17 @@ jobs:
           java-version: '21'
           cache: 'maven'
 
-      - name: Ensure SonarQube Container Is Running
+      - name: Ensure SonarQube Is Running
         run: |
           sudo sysctl -w vm.max_map_count=262144 || true
-          if docker ps --format '{{.Names}}' | grep -Eq '^sonarqube$'; then
-            echo "[✓] SonarQube container is already running. Reusing existing instance."
+          
+          # Check if SonarQube is already responding on port 9000
+          if curl -s -f http://127.0.0.1:9000/api/system/status | grep -q '"status":"UP"'; then
+            echo "[✓] Existing SonarQube instance detected and operational on port 9000. Skipping container launch."
+          elif docker ps --format '{{.Names}}' | grep -Eq '^sonarqube$'; then
+            echo "[✓] Container 'sonarqube' already exists and running."
           else
-            echo "[+] Starting fresh SonarQube container..."
+            echo "[+] No running SonarQube detected. Starting container..."
             docker rm -f sonarqube 2>/dev/null || true
             docker run -d --name sonarqube \
               -p 9000:9000 \
