@@ -152,6 +152,11 @@ jobs:
           name: checkov-results
           path: checkov-results.json
           if-no-files-found: ignore
+          
+      # Place it here at the end of the job:
+      - name: Fix Workspace Permissions
+        if: always()
+        run: sudo chown -R $(id -u):$(id -g) "$GITHUB_WORKSPACE"
 
   # =========================================================================
   # STAGE 5: CONTAINER BUILD & IMAGE HARDENING
