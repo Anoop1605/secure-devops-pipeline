@@ -54,7 +54,7 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '21'
-          cache: 'maven'
+         # cache: 'maven'
 
       - name: Ensure SonarQube Is Running
         run: |
@@ -85,23 +85,29 @@ jobs:
             sleep 3
           done
 
-      - name: Execute SonarQube Scan
+      - name: Setup SonarQube Project and Generate Token
         run: |
-          cd app
-          # Create project if not exists
+          # Create project if it doesn't exist
           curl -s -u admin:admin -X POST "http://127.0.0.1:9000/api/projects/create?name=secure-devops&project=secure-devops" || true
           
-          # Generate or reuse token
-          TOKEN=$(curl -s -u admin:admin -X POST "http://127.0.0.1:9000/api/user_tokens/generate?name=ci-$RANDOM" | jq -r '.token // empty')
-          AUTH_PARAM="-Dsonar.login=admin -Dsonar.password=admin"
-          if [ -n "$TOKEN" ]; then
-            AUTH_PARAM="-Dsonar.login=$TOKEN"
+          # Generate an analysis token
+          TOKEN_RESPONSE=$(curl -s -u admin:admin -X POST "http://127.0.0.1:9000/api/user_tokens/generate?name=ci-token-${RANDOM}")
+          SONAR_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.token // empty')
+          
+          if [ -n "$SONAR_TOKEN" ]; then
+            echo "SONAR_AUTH=-Dsonar.login=$SONAR_TOKEN" >> $GITHUB_ENV
+          else
+            echo "Token generation failed, falling back to basic auth"
+            echo "SONAR_AUTH=-Dsonar.login=admin -Dsonar.password=admin" >> $GITHUB_ENV
           fi
 
+      - name: SonarQube Scan
+        run: |
+          cd app
           mvn org.sonarsource.scanner.maven:sonar-maven-plugin:4.0.0.4121:sonar \
             -Dsonar.projectKey=secure-devops \
             -Dsonar.host.url=http://127.0.0.1:9000 \
-            $AUTH_PARAM
+            $SONAR_AUTH
 
   sca-scan:
     name: "Stage 3: SCA Dependency Scan (Trivy)"
@@ -110,28 +116,15 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '21'
-          cache: 'maven'
+      # ❌ REMOVED: Set up JDK 21 (avoids downloading 580 MB ~/.m2 cache)
 
-      - name: Resolve Maven Dependencies Locally
+      - name: Fast Trivy Filesystem Scan
         run: |
-          cd app
-          # Pre-populates ~/.m2 cache so Trivy does not hit Maven Central
-          mvn dependency:resolve -DskipTests || true
-
-      - name: Run Offline-Aware Trivy Filesystem Scan
-        run: |
-          echo "[+] Scanning dependencies using local Maven cache..."
+          echo "[+] Scanning dependencies in app/pom.xml..."
           docker run --rm \
-            -v "$HOME/.m2:/root/.m2" \
             -v "$PWD:/root/src" \
             aquasec/trivy:latest fs \
             --skip-version-check \
-            --offline-scan \
             --format json \
             --output /root/src/trivy-sca-results.json \
             --severity HIGH,CRITICAL \
