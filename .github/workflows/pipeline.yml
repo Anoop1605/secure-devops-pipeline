@@ -56,38 +56,11 @@ jobs:
           java-version: '21'
          # cache: 'maven'
 
-      - name: Ensure SonarQube Is Running
-        run: |
-          sudo sysctl -w vm.max_map_count=262144 || true
-          
-          # Check if SonarQube is already responding on port 9000
-          if curl -s -f http://127.0.0.1:9000/api/system/status | grep -q '"status":"UP"'; then
-            echo "[✓] Existing SonarQube instance detected and operational on port 9000. Skipping container launch."
-          elif docker ps --format '{{.Names}}' | grep -Eq '^sonarqube$'; then
-            echo "[✓] Container 'sonarqube' already exists and running."
-          else
-            echo "[+] No running SonarQube detected. Starting container..."
-            docker rm -f sonarqube 2>/dev/null || true
-            docker run -d --name sonarqube \
-              -p 9000:9000 \
-              -e SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true \
-              sonarqube:community
-          fi
-
-      - name: Fast Health Check for SonarQube
-        run: |
-          echo "[+] Waiting for SonarQube API..."
-          for i in {1..30}; do
-            if curl -s -f http://127.0.0.1:9000/api/system/status | grep -q '"status":"UP"'; then
-              echo "[✓] SonarQube is UP!"
-              break
-            fi
-            sleep 3
-          done
-
+      # 1. Ensure SonarQube project exists and issue an analysis token
       - name: Setup SonarQube Project and Generate Token
         run: |
-          # Create project if it doesn't exist
+          sleep 5
+          # Create project if it doesn't already exist
           curl -s -u admin:admin -X POST "http://127.0.0.1:9000/api/projects/create?name=secure-devops&project=secure-devops" || true
           
           # Generate an analysis token
@@ -97,10 +70,11 @@ jobs:
           if [ -n "$SONAR_TOKEN" ]; then
             echo "SONAR_AUTH=-Dsonar.login=$SONAR_TOKEN" >> $GITHUB_ENV
           else
-            echo "Token generation failed, falling back to basic auth"
+            echo "Token generation fallback to basic credentials"
             echo "SONAR_AUTH=-Dsonar.login=admin -Dsonar.password=admin" >> $GITHUB_ENV
           fi
 
+      # 2. Run the Sonar scanner with the verified credentials
       - name: SonarQube Scan
         run: |
           cd app
@@ -116,15 +90,23 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # ❌ REMOVED: Set up JDK 21 (avoids downloading 580 MB ~/.m2 cache)
-
-      - name: Fast Trivy Filesystem Scan
+      # 1. Resolve dependencies locally into host ~/.m2
+      - name: Pre-populate Local Maven Cache
         run: |
-          echo "[+] Scanning dependencies in app/pom.xml..."
+          cd app
+          mvn dependency:resolve -DskipTests || true
+
+      # 2. Run Trivy with host .m2 mounted and --offline-scan enabled
+      - name: Fast Offline Trivy Filesystem Scan
+        run: |
+          echo "[+] Scanning dependencies using local cache..."
           docker run --rm \
+            -v "$HOME/.m2:/root/.m2" \
             -v "$PWD:/root/src" \
             aquasec/trivy:latest fs \
+            --offline-scan \
             --skip-version-check \
+            --scanners vuln \
             --format json \
             --output /root/src/trivy-sca-results.json \
             --severity HIGH,CRITICAL \
