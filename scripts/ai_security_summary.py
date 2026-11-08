@@ -114,7 +114,7 @@ Please generate a concise, human-readable report in Markdown with the following 
 
 Keep it clear, actionable, and formatted with clean bullet points and code blocks.
 """
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
     body = {
         "contents": [{"parts": [{"text": prompt}]}]
