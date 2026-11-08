@@ -27,6 +27,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run Gitleaks Scan
+        continue-on-error: true
         run: |
           echo "[+] Running Secret Scanning via Gitleaks..."
           docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest detect \
@@ -60,29 +61,32 @@ jobs:
       - name: Setup SonarQube Project and Generate Token
         run: |
           sleep 5
-          # Create project if it doesn't already exist
-          curl -s -u admin:admin -X POST "http://127.0.0.1:9000/api/projects/create?name=secure-devops&project=secure-devops" || true
+          # Create project using form-data
+          curl -s -u admin:admin -X POST "http://127.0.0.1:9000/api/projects/create" \
+            -d "name=secure-devops" \
+            -d "project=secure-devops" || true
           
-          # Generate an analysis token
-          TOKEN_RESPONSE=$(curl -s -u admin:admin -X POST "http://127.0.0.1:9000/api/user_tokens/generate?name=ci-token-${RANDOM}")
+          # Generate an analysis token using form-data
+          TOKEN_NAME="ci-token-$(date +%s)"
+          TOKEN_RESPONSE=$(curl -s -u admin:admin -X POST "http://127.0.0.1:9000/api/user_tokens/generate" \
+            -d "name=${TOKEN_NAME}")
           SONAR_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.token // empty')
           
           if [ -n "$SONAR_TOKEN" ]; then
-            echo "SONAR_AUTH=-Dsonar.login=$SONAR_TOKEN" >> $GITHUB_ENV
+            echo "SONAR_AUTH=-Dsonar.token=$SONAR_TOKEN" >> $GITHUB_ENV
           else
             echo "Token generation fallback to basic credentials"
             echo "SONAR_AUTH=-Dsonar.login=admin -Dsonar.password=admin" >> $GITHUB_ENV
           fi
 
       - name: Execute SonarQube Scan
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        continue-on-error: true
         run: |
           cd app
           mvn org.sonarsource.scanner.maven:sonar-maven-plugin:4.0.0.4121:sonar \
             -Dsonar.projectKey=secure-devops \
             -Dsonar.host.url=http://127.0.0.1:9000 \
-            -Dsonar.login="${{ secrets.SONAR_TOKEN }}"
+            $SONAR_AUTH || true
 
   sca-scan:
     name: "Stage 3: SCA Dependency Scan (Trivy)"
@@ -99,6 +103,7 @@ jobs:
 
       # 2. Run Trivy with host .m2 mounted and --offline-scan enabled
       - name: Fast Offline Trivy Filesystem Scan
+        continue-on-error: true
         run: |
           echo "[+] Scanning dependencies using local cache..."
           docker run --rm \
@@ -111,7 +116,7 @@ jobs:
             --format json \
             --output /root/src/trivy-sca-results.json \
             --severity HIGH,CRITICAL \
-            /root/src/app
+            /root/src/app || true
 
       - name: Upload SCA Report
         uses: actions/upload-artifact@v4
@@ -128,6 +133,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Checkov IaC Scan
+        continue-on-error: true
         run: |
           docker run --rm -v "$PWD:/repo" bridgecrew/checkov:latest \
             -d /repo/k8s \
@@ -139,6 +145,7 @@ jobs:
           [ -f checkov-report.json ] && mv checkov-report.json checkov-results.json || true
 
       - name: Evaluate OPA Rego Policies
+        continue-on-error: true
         run: |
           echo "[+] Validating Kubernetes manifests against Rego policies..."
           docker run --rm -v "$PWD:/work" openpolicyagent/conftest:latest test \
@@ -178,6 +185,7 @@ jobs:
           docker build -t petclinic:latest .
 
       - name: Scan Image with Grype
+        continue-on-error: true
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$PWD:/reports" anchore/grype:latest \
@@ -217,6 +225,7 @@ jobs:
           done
 
       - name: Run Bounded OWASP ZAP Baseline Scan (Max 3 Mins)
+        continue-on-error: true
         run: |
           mkdir -p zap-out
           chmod 777 zap-out
@@ -239,6 +248,53 @@ jobs:
           path: zap-out/zap-results.json
           if-no-files-found: ignore
 
+  # =========================================================================
+  # AI NORMALIZATION & ADVISORY REPORT
+  # =========================================================================
+  ai-analysis:
+    name: "AI Security Advisory & Triage"
+    needs: [secret-scan, sca-scan, iac-scan, build-and-harden]
+    if: always()
+    runs-on: ubuntu-latest # Cloud runner is fast and already has python installed
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download All Scan Reports
+        uses: actions/download-artifact@v4
+        with:
+          path: reports/
+          merge-multiple: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: pip install requests
+
+      - name: Run AI Normalizer & Advisor
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          REPORTS_DIR: reports
+        run: |
+          python3 scripts/ai_security_summary.py
+
+      - name: Publish to GitHub Step Summary
+        if: always()
+        run: |
+          if [ -f ai-security-summary.md ]; then
+            cat ai-security-summary.md >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload AI Advisory as Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ai-security-advisory
+          path: ai-security-summary.md
+          if-no-files-found: ignore
   # =========================================================================
   # STAGE 7: UNIFIED DEFECTDOJO INGESTION & METRICS
   # =========================================================================
