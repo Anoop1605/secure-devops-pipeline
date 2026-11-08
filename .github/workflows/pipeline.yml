@@ -74,14 +74,15 @@ jobs:
             echo "SONAR_AUTH=-Dsonar.login=admin -Dsonar.password=admin" >> $GITHUB_ENV
           fi
 
-      # 2. Run the Sonar scanner with the verified credentials
-      - name: SonarQube Scan
+      - name: Execute SonarQube Scan
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
           cd app
           mvn org.sonarsource.scanner.maven:sonar-maven-plugin:4.0.0.4121:sonar \
             -Dsonar.projectKey=secure-devops \
             -Dsonar.host.url=http://127.0.0.1:9000 \
-            $SONAR_AUTH
+            -Dsonar.login="${{ secrets.SONAR_TOKEN }}"
 
   sca-scan:
     name: "Stage 3: SCA Dependency Scan (Trivy)"
