@@ -102,6 +102,7 @@ jobs:
           mvn dependency:resolve -DskipTests || true
 
       # 2. Run Trivy with host .m2 mounted and --offline-scan enabled
+      # Push
       - name: Fast Offline Trivy Filesystem Scan
         continue-on-error: true
         run: |
